@@ -1,0 +1,59 @@
+import pandas as pd
+import numpy as np
+import yfinance as yf
+
+def get_market_data(ticker, start_date, end_date):
+    """Fetches historical data and calculates basic technical features."""
+    # Download data from Yahoo Finance API
+    df = yf.download(ticker, start=start_date, end=end_date)
+    
+    # Handle multi-index columns if returned by yfinance
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+        
+    # Standardize column names to lowercase
+    df.columns = [col.lower() for col in df.columns]
+    
+    # Calculate log returns for stable statistical properties
+    df['log_return'] = np.log(df['adj close'] / df['adj close'].shift(1))
+    
+    # Feature Engineering: 50-day and 200-day Moving Averages
+    df['ma_fast'] = df['adj close'].rolling(window=50).mean()
+    df['ma_slow'] = df['adj close'].rolling(window=200).mean()
+    
+    return df.dropna()
+
+def simulate_crossover_strategy(df):
+    """Simulates a classic Golden Cross / Death Cross moving average strategy."""
+    # Generate signals: 1 when fast MA is above slow MA, else 0
+    df['signal'] = np.where(df['ma_fast'] > df['ma_slow'], 1, 0)
+    
+    # Shift signals by 1 day to prevent data leakage (buy/sell execution happens next day)
+    df['position'] = df['signal'].shift(1)
+    
+    # Calculate strategy returns (position * market log return)
+    df['strategy_return'] = df['position'] * df['log_return']
+    
+    # Calculate cumulative returns for performance evaluation
+    df['cum_market_return'] = np.exp(df['log_return'].cumsum()) - 1
+    df['cum_strategy_return'] = np.exp(df['strategy_return'].cumsum()) - 1
+    
+    return df
+
+# Execute the pipeline using Apple (AAPL) as a liquid test asset
+if __name__ == "__main__":
+    ticker_symbol = "AAPL"
+    start = "2015-01-01"
+    end = "2025-12-31"
+    
+    print(f"Fetching and processing data for {ticker_symbol}...")
+    data = get_market_data(ticker_symbol, start, end)
+    results = simulate_crossover_strategy(data)
+    
+    # Extract final cumulative performance metrics
+    final_market = results['cum_market_return'].iloc[-1] * 100
+    final_strategy = results['cum_strategy_return'].iloc[-1] * 100
+    
+    print(f"\n--- Performance Summary (2015 - 2025) ---")
+    print(f"Buy & Hold Market Return: {final_market:.2f}%")
+    print(f"AI/Algo Strategy Return:  {final_strategy:.2f}%")
